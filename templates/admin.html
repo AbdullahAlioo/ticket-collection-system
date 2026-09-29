@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enquiries - Little Stars Daycare</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-star"></i>
+                Little Stars Daycare
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="{{ url_for('index') }}">
+                    <i class="fas fa-home me-1"></i>
+                    Home
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show"
+            role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h1 style="font-size: 1.75rem; font-weight: 600; margin: 0; color: var(--text-primary);">
+                            <i class="fas fa-envelope me-2" style="color: var(--accent-color);"></i>
+                            Enquiries & Requests
+                        </h1>
+                        <p style="color: var(--text-secondary); margin: 0.25rem 0 0 0; font-size: 14px;">
+                            Manage all parent enquiries and requests
+                        </p>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="refreshData()">
+                            <i class="fas fa-sync-alt"></i>
+                            Refresh
+                        </button>
+                        {% if tickets %}
+                        <a href="{{ url_for('export_excel') }}" class="btn btn-primary btn-sm">
+                            <i class="fas fa-file-excel"></i>
+                            Export Excel
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="stats-icon">
+                        <i class="fas fa-envelope-open"></i>
+                    </div>
+                    <div class="stats-content">
+                        <h3>{{ total_tickets }}</h3>
+                        <p>Total Enquiries</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="stats-icon">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div class="stats-content">
+                        <h3>{{ tickets|map(attribute='email')|unique|list|length }}</h3>
+                        <p>Unique Parents</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="stats-icon">
+                        <i class="fas fa-question-circle"></i>
+                    </div>
+                    <div class="stats-content">
+                        <h3>{{ tickets|map(attribute='country')|unique|list|length }}</h3>
+                        <p>Enquiry Types</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="stats-icon">
+                        <i class="fas fa-calendar"></i>
+                    </div>
+                    <div class="stats-content">
+                        <h3>{{ tickets|selectattr('timestamp')|list|length }}</h3>
+                        <p>This Week</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Enquiries Table -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0" style="font-size: 16px; font-weight: 600;">
+                            <i class="fas fa-list me-2" style="color: var(--accent-color);"></i>
+                            Parent Enquiries
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% if tickets %}
+                        <div class="table-controls mb-3">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <input type="text" id="searchInput" class="form-control"
+                                        placeholder="Search by name, email, or phone...">
+                                </div>
+                                <div class="col-md-6">
+                                    <select id="countryFilter" class="form-select">
+                                        <option value="">All Enquiry Types</option>
+                                        {% for country in tickets|map(attribute='country')|unique|sort %}
+                                        <option value="{{ country }}">{{ country }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table" id="ticketsTable">
+                                <thead>
+                                    <tr>
+                                        <th onclick="sortTable(0)">
+                                            Name <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th onclick="sortTable(1)">
+                                            Email <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th onclick="sortTable(2)">
+                                            Phone <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th onclick="sortTable(3)">
+                                            Enquiry Type <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th onclick="sortTable(4)">
+                                            Request ID <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th onclick="sortTable(5)">
+                                            Status <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th onclick="sortTable(6)">
+                                            Date <i class="fas fa-sort"></i>
+                                        </th>
+                                        <th>Notes</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ticketsTableBody">
+                                    {% for ticket in tickets %}
+                                    <tr>
+                                        <td><strong>{{ ticket.name }}</strong></td>
+                                        <td>{{ ticket.email }}</td>
+                                        <td>{{ ticket.phone }}</td>
+                                        <td>
+                                            <span style="background: #fef3c7; color: #92400e; padding: 0.25rem 0.75rem; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                                                {{ ticket.country }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span style="background: #f8fafc; color: #475569; padding: 0.25rem 0.5rem; border-radius: 4px; font-family: 'Monaco', monospace; font-size: 12px;">{{
+                                                ticket.ticket_number }}</span>
+                                        </td>
+                                        <td>
+                                            <span style="background: #dbeafe; color: #0c4a6e; padding: 0.25rem 0.75rem; border-radius: 6px; font-size: 12px; font-weight: 500;">
+                                                Pending
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span style="color: var(--text-secondary); font-size: 12px;">{{
+                                                ticket.timestamp }}</span>
+                                        </td>
+                                        <td>
+                                            <small style="color: var(--text-secondary);">
+                                                {% if ticket.region %}
+                                                {{ ticket.region[:50] }}{% if ticket.region|length > 50 %}...{% endif %}
+                                                {% else %}
+                                                <em>No notes</em>
+                                                {% endif %}
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <button type="button" class="btn btn-sm btn-outline-info me-1" onclick="viewDetails('{{ ticket }}')">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                            <form method="POST"
+                                                action="{{ url_for('delete_ticket', ticket_number=ticket.ticket_number) }}"
+                                                style="display: inline;"
+                                                onsubmit="return confirm('Are you sure you want to delete this enquiry?')">
+                                                <button type="submit" class="btn btn-outline-danger btn-sm">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <div>
+                                <small class="text-muted">
+                                    Showing <span id="showingCount">{{ tickets|length }}</span> of {{ total_tickets }}
+                                    enquiries
+                                </small>
+                            </div>
+                            <div>
+                                <button class="btn btn-outline-primary btn-sm" onclick="exportVisible()">
+                                    <i class="fas fa-download me-1"></i>
+                                    Export Visible
+                                </button>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-inbox fa-4x text-muted mb-3"></i>\n                            <h4 class="text-muted\">No Enquiries Yet</h4>\n                            <p class=\"text-muted\">You haven't received any parent enquiries. Enquiries will appear here when parents contact you.</p>\n                        </div>\n                        {% endif %}\n                    </div>\n                </div>\n            </div>\n        </div>\n\n        <!-- Waiting List Section -->\n        <div class=\"row mb-4 mt-4\">\n            <div class=\"col-12\">\n                <div class=\"card\">\n                    <div class=\"card-header\">\n                        <h5 class=\"card-title mb-0\" style=\"font-size: 16px; font-weight: 600;\">\n                            <i class=\"fas fa-clock me-2\" style=\"color: var(--accent-color);\"></i>\n                            Waiting List for Enrolment\n                            <span class=\"badge bg-primary ms-2\">{{ total_waiting }}</span>\n                        </h5>\n                    </div>\n                    <div class=\"card-body\">\n                        {% if waiting_list %}\n                        <div class=\"table-responsive\">\n                            <table class=\"table\" id=\"waitingTable\">\n                                <thead>\n                                    <tr>\n                                        <th>Email</th>\n                                        <th>Contact/Website</th>\n                                        <th>Sign-up Date</th>\n                                        <th>Actions</th>\n                                    </tr>\n                                </thead>\n                                <tbody>\n                                    {% for entry in waiting_list %}\n                                    <tr>\n                                        <td>{{ entry.email }}</td>\n                                        <td>{{ entry.website or 'Not provided' }}</td>\n                                        <td>\n                                            <span style=\"color: var(--text-secondary); font-size: 12px;\">{{ entry.timestamp\n                                                }}</span>\n                                        </td>\n                                        <td>\n                                            <form method=\"POST\"\n                                                action=\"{{ url_for('delete_waiting_entry', entry_id=entry.id) }}\"\n                                                style=\"display: inline;\"\n                                                onsubmit=\"return confirm('Remove from waiting list?')\">\n                                                <button type=\"submit\" class=\"btn btn-outline-danger btn-sm\">\n                                                    <i class=\"fas fa-trash\"></i>\n                                                </button>\n                                            </form>\n                                        </td>\n                                    </tr>\n                                    {% endfor %}\n                                </tbody>\n                            </table>\n                        </div>\n                        {% else %}\n                        <div class=\"text-center py-4\">\n                            <i class=\"fas fa-clock fa-3x text-muted mb-3\"></i>\n                            <h5 class=\"text-muted\">No one waiting yet</h5>\n                            <p class=\"text-muted\">Parents interested in enrolment will appear here.</p>\n                        </div>\n                        {% endif %}\n                    </div>\n                </div>\n            </div>\n        </div>\n    </div>\n\n    <footer class=\"bg-dark text-light mt-5 py-4\">\n        <div class=\"container text-center\">\n            <p class=\"mb-0\">\n                <i class=\"fas fa-shield-alt me-2\"></i>\n                Little Stars Daycare - Enquiry Management System - Last updated: <span id=\"lastUpdated\"></span>\n            </p>\n        </div>\n    </footer>\n\n    <script src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js\"></script>\n    <script src=\"{{ url_for('static', filename='js/main.js') }}\"></script>\n    <script>\n        setInterval(function () {\n            document.getElementById('lastUpdated').textContent = new Date().toISOString().slice(0, 19).replace('T', ' ');\n        }, 30000);\n    </script>\n</body>\n\n</html>\n
