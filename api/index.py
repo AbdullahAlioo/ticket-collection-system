@@ -2,7 +2,6 @@ import os
 import json
 import logging
 from datetime import datetime
-import tempfile
 import re
 import uuid
 
@@ -18,8 +17,9 @@ from flask import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
+# Absolute paths for templates and static files
 api_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(api_dir)
 
@@ -28,9 +28,9 @@ app = Flask(
     template_folder=os.path.join(root_dir, 'templates'),
     static_folder=os.path.join(root_dir, 'static')
 )
-app.secret_key = os.environ.get("SESSION_SECRET", "ticket-secret-2025")
+app.secret_key = os.environ.get("SESSION_SECRET", "daycare-secret-key-2025")
 
-# Enable CORS
+# Enable CORS for all requests
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -38,11 +38,10 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
-# MongoDB connection helper
-def get_db():
+# MongoDB helper
+def get_mongo_db():
     mongo_uri = os.environ.get("MONGO_URI")
     if not mongo_uri:
-        logging.warning("No MONGO_URI found in environment variables.")
         return None
     try:
         from pymongo import MongoClient
@@ -50,60 +49,65 @@ def get_db():
         client = MongoClient(
             mongo_uri,
             tlsCAFile=certifi.where(),
-            serverSelectionTimeoutMS=5000
+            serverSelectionTimeoutMS=4000
         )
-        return client.get_database("daycare_db")
+        return client.daycare_db
     except Exception as e:
-        logging.error(f"MongoDB connection error: {e}")
+        logging.error(f"MongoDB connect failed: {e}")
         return None
 
-def save_record(collection_name, item):
-    db = get_db()
+def save_data(collection_name, item):
+    """Saves to MongoDB if configured, otherwise saves directly to /tmp/<name>.json"""
+    db = get_mongo_db()
     if db is not None:
         try:
             db[collection_name].insert_one(item.copy())
-            return True, None
+            return True
         except Exception as e:
-            return False, f"MongoDB error: {str(e)}"
+            logging.error(f"MongoDB insert error in {collection_name}: {e}")
 
-    # Fallback to local /tmp storage
     try:
-        data_dir = "/tmp/data"
-        os.makedirs(data_dir, exist_ok=True)
-        file_path = os.path.join(data_dir, f"{collection_name}.json")
+        file_path = f"/tmp/{collection_name}.json"
         items = []
         if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 items = json.load(f)
         items.append(item)
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             json.dump(items, f, indent=2, ensure_ascii=False)
-        return True, None
+        return True
     except Exception as e:
-        return False, f"File write error: {str(e)}"
+        logging.error(f"File save error in {collection_name}: {e}")
+        return False
 
 def load_data(collection_name):
-    db = get_db()
+    """Loads from MongoDB if configured, otherwise loads from /tmp/<name>.json"""
+    db = get_mongo_db()
     if db is not None:
         try:
             return list(db[collection_name].find({}, {"_id": 0}))
         except Exception as e:
-            logging.error(f"MongoDB load error: {e}")
+            logging.error(f"MongoDB fetch error in {collection_name}: {e}")
+
     try:
-        file_path = f"/tmp/data/{collection_name}.json"
+        file_path = f"/tmp/{collection_name}.json"
         if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 return json.load(f)
     except Exception as e:
-        logging.error(f"File load error: {e}")
+        logging.error(f"File read error in {collection_name}: {e}")
     return []
 
-# Validation
+# Email validation
 def validate_email(email):
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(email and re.match(pattern, email.strip()))
 
-# Inquiry endpoint
+# ----------------- ROUTES -----------------
+@app.route('/')
+def index():
+    return render_template('index.html')
+
 @app.route('/inquiry', methods=['GET', 'POST', 'OPTIONS'])
 def submit_inquiry():
     if request.method == 'OPTIONS':
@@ -143,19 +147,13 @@ def submit_inquiry():
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
-        success, err_msg = save_record("enquiries", inquiry_data)
-        if success:
-            return jsonify({
-                "success": True,
-                "message": "Inquiry submitted successfully",
-                "inquiry_id": inquiry_data["id"]
-            }), 200
-        else:
-            return jsonify({
-                "success": False,
-                "message": "Failed to save inquiry",
-                "error_detail": err_msg
-            }), 500
+        save_data("enquiries", inquiry_data)
+
+        return jsonify({
+            "success": True,
+            "message": "Inquiry submitted successfully",
+            "inquiry_id": inquiry_data["id"]
+        }), 200
 
     except Exception as e:
         logging.error(f"Error submitting inquiry: {e}")
@@ -179,5 +177,3 @@ def admin():
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
-
-
