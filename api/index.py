@@ -304,9 +304,19 @@ def submit_inquiry():
     try:
         if request.method == 'GET':
             email = request.args.get('email', '').strip()
+            name = request.args.get('name', '').strip()
+            phone = request.args.get('phone', '').strip()
+            interest = request.args.get('interest', '').strip()
+            message = request.args.get('message', '').strip()
+            source = request.args.get('source', '').strip()
         else:
             data = request.get_json() or {}
             email = data.get('email', '').strip()
+            name = data.get('name', '').strip()
+            phone = data.get('phone', '').strip()
+            interest = data.get('interest', '').strip()
+            message = data.get('message', '').strip()
+            source = data.get('source', '').strip()
         
         if not email:
             return jsonify({
@@ -322,12 +332,12 @@ def submit_inquiry():
         
         inquiry_data = {
             "id": str(uuid.uuid4()),
-            "name": request.args.get('name') or request.get_json().get('name', 'Not provided') if request.method == 'POST' else request.args.get('name', ''),
+            "name": name or "Not provided",
             "email": email.lower(),
-            "phone": request.args.get('phone') or request.get_json().get('phone', '') if request.method == 'POST' else request.args.get('phone', ''),
-            "enquiry_type": request.args.get('interest') or request.get_json().get('interest', '') if request.method == 'POST' else request.args.get('interest', ''),
-            "message": request.args.get('message') or request.get_json().get('message', '') if request.method == 'POST' else request.args.get('message', ''),
-            "source": request.args.get('source') or request.get_json().get('source', '') if request.method == 'POST' else request.args.get('source', ''),
+            "phone": phone or "",
+            "enquiry_type": interest or "General",
+            "message": message or "",
+            "source": source or "unknown",
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
@@ -438,13 +448,19 @@ def delete_waiting_entry(entry_id):
 
 @app.route('/admin')
 def admin():
-    """Admin dashboard to view all tickets and waiting list"""
+    """Admin dashboard to view all tickets, enquiries and waiting list"""
     try:
         tickets = load_tickets()
+        enquiries = load_enquiries()
         waiting_list = load_waiting_list()
+        
+        logging.info(f"Admin page loaded - Tickets: {len(tickets)}, Enquiries: {len(enquiries)}, Waiting: {len(waiting_list)}")
+        
         return render_template('admin.html', 
-                             tickets=tickets, 
+                             tickets=tickets,
                              total_tickets=len(tickets),
+                             enquiries=enquiries,
+                             total_enquiries=len(enquiries),
                              waiting_list=waiting_list,
                              total_waiting=len(waiting_list))
     except Exception as e:
