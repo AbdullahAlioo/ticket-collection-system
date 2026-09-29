@@ -17,6 +17,6 @@
     }
   ],
   "env": {
-    "SESSION_SECRET": "@SESSION_SECRET"
+    "SESSION_SECRET": "ticket-collection-system-default-key-change-in-production"
   }
 }
