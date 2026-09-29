@@ -13,7 +13,13 @@ from flask import request as flask_request
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
-app = Flask(__name__, template_folder='../templates', static_folder='../static')
+# Get the absolute path to the api directory
+api_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(api_dir)
+
+app = Flask(__name__, 
+            template_folder=os.path.join(root_dir, 'templates'),
+            static_folder=os.path.join(root_dir, 'static'))
 app.secret_key = os.environ.get("SESSION_SECRET", "your-secret-key-for-development")
 
 # Ensure data directory exists
@@ -344,13 +350,20 @@ def delete_waiting_entry(entry_id):
 @app.route('/admin')
 def admin():
     """Admin dashboard to view all tickets and waiting list"""
-    tickets = load_tickets()
-    waiting_list = load_waiting_list()
-    return render_template('admin.html', 
-                         tickets=tickets, 
-                         total_tickets=len(tickets),
-                         waiting_list=waiting_list,
-                         total_waiting=len(waiting_list))
+    try:
+        tickets = load_tickets()
+        waiting_list = load_waiting_list()
+        return render_template('admin.html', 
+                             tickets=tickets, 
+                             total_tickets=len(tickets),
+                             waiting_list=waiting_list,
+                             total_waiting=len(waiting_list))
+    except Exception as e:
+        logging.error(f"Error in admin route: {e}")
+        return jsonify({
+            "success": False,
+            "message": f"Error loading admin page: {str(e)}"
+        }), 500
 
 @app.errorhandler(404)
 def not_found(error):
@@ -365,3 +378,7 @@ def internal_error(error):
         "success": False,
         "message": "Internal server error"
     }), 500
+
+# Export the app for Vercel
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)
