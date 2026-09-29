@@ -22,10 +22,19 @@ app = Flask(__name__,
             static_folder=os.path.join(root_dir, 'static'))
 app.secret_key = os.environ.get("SESSION_SECRET", "your-secret-key-for-development")
 
+# Enable CORS
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
 # Ensure data directory exists
 DATA_DIR = "/tmp/data"
 TICKETS_FILE = os.path.join(DATA_DIR, "tickets.json")
 WAITING_LIST_FILE = os.path.join(DATA_DIR, "waiting_list.json")
+ENQUIRIES_FILE = os.path.join(DATA_DIR, "enquiries.json")
 
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
@@ -70,6 +79,27 @@ def save_waiting_list(waiting_list):
         return True
     except Exception as e:
         logging.error(f"Error saving waiting list: {e}")
+        return False
+
+def load_enquiries():
+    """Load enquiries from JSON file"""
+    try:
+        if os.path.exists(ENQUIRIES_FILE):
+            with open(ENQUIRIES_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        logging.error(f"Error loading enquiries: {e}")
+        return []
+
+def save_enquiries(enquiries):
+    """Save enquiries to JSON file"""
+    try:
+        with open(ENQUIRIES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(enquiries, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        logging.error(f"Error saving enquiries: {e}")
         return False
 
 def validate_email(email):
@@ -264,6 +294,65 @@ def delete_ticket(ticket_number):
         logging.error(f"Error deleting ticket: {e}")
         flash("Error deleting ticket", "error")
         return redirect(url_for('admin'))
+
+@app.route('/inquiry', methods=['GET', 'POST', 'OPTIONS'])
+def submit_inquiry():
+    """Handle inquiry submissions from external forms - Support CORS"""
+    if request.method == 'OPTIONS':
+        return '', 204
+    
+    try:
+        if request.method == 'GET':
+            email = request.args.get('email', '').strip()
+        else:
+            data = request.get_json() or {}
+            email = data.get('email', '').strip()
+        
+        if not email:
+            return jsonify({
+                "success": False,
+                "message": "Email is required"
+            }), 400
+        
+        if not validate_email(email):
+            return jsonify({
+                "success": False,
+                "message": "Invalid email format"
+            }), 400
+        
+        inquiry_data = {
+            "id": str(uuid.uuid4()),
+            "name": request.args.get('name') or request.get_json().get('name', 'Not provided') if request.method == 'POST' else request.args.get('name', ''),
+            "email": email.lower(),
+            "phone": request.args.get('phone') or request.get_json().get('phone', '') if request.method == 'POST' else request.args.get('phone', ''),
+            "enquiry_type": request.args.get('interest') or request.get_json().get('interest', '') if request.method == 'POST' else request.args.get('interest', ''),
+            "message": request.args.get('message') or request.get_json().get('message', '') if request.method == 'POST' else request.args.get('message', ''),
+            "source": request.args.get('source') or request.get_json().get('source', '') if request.method == 'POST' else request.args.get('source', ''),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        enquiries = load_enquiries()
+        enquiries.append(inquiry_data)
+        
+        if save_enquiries(enquiries):
+            logging.info(f"New inquiry received from: {email}")
+            return jsonify({
+                "success": True,
+                "message": "Inquiry submitted successfully",
+                "inquiry_id": inquiry_data["id"]
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Failed to save inquiry"
+            }), 500
+            
+    except Exception as e:
+        logging.error(f"Error submitting inquiry: {e}")
+        return jsonify({
+            "success": False,
+            "message": f"Internal server error: {str(e)}"
+        }), 500
 
 @app.route('/wait/<email>')
 def add_to_waiting_list(email):
