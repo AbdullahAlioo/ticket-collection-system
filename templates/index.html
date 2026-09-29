@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticket Collection System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-ticket-alt"></i>
+                Ticket Collection System
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/admin">
+                    <i class="fas fa-chart-line me-1"></i>
+                    Admin Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-5">
+        <div class="hero-section">
+            <h1>Ticket Collection System</h1>
+            <p class="lead">Powerful API for managing ticket submissions and waiting lists</p>
+        </div>
+
+        <div class="row mb-5">
+            <div class="col-md-4 mb-4">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-ticket-alt"></i>
+                    </div>
+                    <h5>Ticket Management</h5>
+                    <p>Add, view, and manage ticket submissions with ease</p>
+                </div>
+            </div>
+            <div class="col-md-4 mb-4">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-list-check"></i>
+                    </div>
+                    <h5>Waiting List</h5>
+                    <p>Maintain and manage waiting lists for future events</p>
+                </div>
+            </div>
+            <div class="col-md-4 mb-4">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-download"></i>
+                    </div>
+                    <h5>Export Data</h5>
+                    <p>Download ticket data in Excel format instantly</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0"><i class="fas fa-code me-2"></i>API Documentation</h5>
+                    </div>
+                    <div class="card-body">
+                        <h6 class="mt-4">1. Add Ticket Data</h6>
+                        <div class="code-block bg-light p-3 rounded mb-3">
+                            <code>GET /add_data/&lt;email&gt;/&lt;phone&gt;/&lt;name&gt;/&lt;tickets&gt;/&lt;ticket_number&gt;/&lt;country&gt;/&lt;region&gt;</code>
+                        </div>
+                        <p><strong>Example:</strong></p>
+                        <div class="code-block bg-light p-3 rounded mb-3">
+                            <code>GET /add_data/john@example.com/+1234567890/John%20Doe/5/TKT001/USA/California</code>
+                        </div>
+
+                        <h6 class="mt-4">2. Get All Tickets</h6>
+                        <div class="code-block bg-light p-3 rounded mb-3">
+                            <code>GET /api/tickets</code>
+                        </div>
+
+                        <h6 class="mt-4">3. Add to Waiting List</h6>
+                        <div class="code-block bg-light p-3 rounded mb-3">
+                            <code>GET /wait/&lt;email&gt;?website=&lt;optional_website&gt;</code>
+                        </div>
+                        <p><strong>Example:</strong></p>
+                        <div class="code-block bg-light p-3 rounded mb-3">
+                            <code>GET /wait/user@example.com?website=mywebsite.com</code>
+                        </div>
+
+                        <h6 class="mt-4">4. Get Waiting List</h6>
+                        <div class="code-block bg-light p-3 rounded mb-3">
+                            <code>GET /api/waiting_list</code>
+                        </div>
+
+                        <h6 class="mt-4">5. Export to Excel</h6>
+                        <div class="code-block bg-light p-3 rounded mb-3">
+                            <code>GET /export/excel</code>
+                        </div>
+
+                        <h6 class="mt-4">Response Format</h6>
+                        <p>All endpoints return JSON responses:</p>
+                        <div class="code-block bg-light p-3 rounded mb-3">
+                            <pre><code>{
+  "success": true,
+  "message": "Operation successful",
+  "data": {...}
+}</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-dark text-light mt-5 py-4">
+        <div class="container text-center">
+            <p class="mb-0">
+                <i class="fas fa-shield-alt me-2"></i>
+                Premium Minimal Ticket Collection System
+            </p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
