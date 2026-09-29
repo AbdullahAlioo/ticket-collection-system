@@ -2,27 +2,38 @@ import os
 import json
 import logging
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
 import tempfile
 import re
 import uuid
-from flask import request as flask_request
+
+from flask import (
+    Flask,
+    render_template,
+    request,
+    jsonify,
+    send_file,
+    flash,
+    redirect,
+    url_for,
+)
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
-# Get the absolute path to the api directory
+# Path configuration
 api_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(api_dir)
 
-app = Flask(__name__, 
-            template_folder=os.path.join(root_dir, 'templates'),
-            static_folder=os.path.join(root_dir, 'static'))
-app.secret_key = os.environ.get("SESSION_SECRET", "your-secret-key-for-development")
+app = Flask(
+    __name__,
+    template_folder=os.path.join(root_dir, 'templates'),
+    static_folder=os.path.join(root_dir, 'static')
+)
+app.secret_key = os.environ.get("SESSION_SECRET", "ticket-collection-secret-key-2025")
 
-# Enable CORS
+# ----------------- CORS SUPPORT -----------------
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -30,277 +41,114 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
-# Ensure data directory exists
+# ----------------- DATABASE / PERSISTENCE LAYER -----------------
+# If MONGO_URI is set in Vercel Environment Variables, MongoDB Atlas is used (Persistent).
+# Otherwise, it falls back to /tmp/data/*.json for local testing.
+MONGO_URI = os.environ.get("MONGO_URI")
+db = None
+
+if MONGO_URI:
+    try:
+        from pymongo import MongoClient
+        import certifi
+        client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+        db = client.ticket_system
+        logging.info("Connected to MongoDB Atlas successfully.")
+    except Exception as e:
+        logging.error(f"MongoDB connection failed: {e}")
+        db = None
+
 DATA_DIR = "/tmp/data"
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR, exist_ok=True)
+
 TICKETS_FILE = os.path.join(DATA_DIR, "tickets.json")
 WAITING_LIST_FILE = os.path.join(DATA_DIR, "waiting_list.json")
 ENQUIRIES_FILE = os.path.join(DATA_DIR, "enquiries.json")
 
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
 
-def load_tickets():
-    """Load tickets from JSON file"""
+def load_data(collection_name, file_path):
+    if db is not None:
+        try:
+            return list(db[collection_name].find({}, {"_id": 0}))
+        except Exception as e:
+            logging.error(f"Error loading from MongoDB {collection_name}: {e}")
+            return []
     try:
-        if os.path.exists(TICKETS_FILE):
-            with open(TICKETS_FILE, 'r', encoding='utf-8') as f:
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return []
     except Exception as e:
-        logging.error(f"Error loading tickets: {e}")
+        logging.error(f"Error loading {file_path}: {e}")
         return []
 
-def save_tickets(tickets):
-    """Save tickets to JSON file"""
+
+def save_record(collection_name, file_path, item):
+    if db is not None:
+        try:
+            db[collection_name].insert_one(item.copy())
+            return True
+        except Exception as e:
+            logging.error(f"Error inserting into MongoDB {collection_name}: {e}")
+            return False
     try:
-        with open(TICKETS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(tickets, f, indent=2, ensure_ascii=False)
+        items = load_data(collection_name, file_path)
+        items.append(item)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(items, f, indent=2, ensure_ascii=False)
         return True
     except Exception as e:
-        logging.error(f"Error saving tickets: {e}")
+        logging.error(f"Error saving to {file_path}: {e}")
         return False
 
-def load_waiting_list():
-    """Load waiting list from JSON file"""
-    try:
-        if os.path.exists(WAITING_LIST_FILE):
-            with open(WAITING_LIST_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return []
-    except Exception as e:
-        logging.error(f"Error loading waiting list: {e}")
-        return []
 
-def save_waiting_list(waiting_list):
-    """Save waiting list to JSON file"""
+def delete_record(collection_name, file_path, id_key, id_val):
+    if db is not None:
+        try:
+            res = db[collection_name].delete_one({id_key: id_val})
+            return res.deleted_count > 0
+        except Exception as e:
+            logging.error(f"Error deleting from MongoDB {collection_name}: {e}")
+            return False
     try:
-        with open(WAITING_LIST_FILE, 'w', encoding='utf-8') as f:
-            json.dump(waiting_list, f, indent=2, ensure_ascii=False)
-        return True
+        items = load_data(collection_name, file_path)
+        new_items = [item for item in items if item.get(id_key) != id_val]
+        if len(new_items) < len(items):
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(new_items, f, indent=2, ensure_ascii=False)
+            return True
+        return False
     except Exception as e:
-        logging.error(f"Error saving waiting list: {e}")
+        logging.error(f"Error deleting from {file_path}: {e}")
         return False
 
-def load_enquiries():
-    """Load enquiries from JSON file"""
-    try:
-        if os.path.exists(ENQUIRIES_FILE):
-            with open(ENQUIRIES_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return []
-    except Exception as e:
-        logging.error(f"Error loading enquiries: {e}")
-        return []
 
-def save_enquiries(enquiries):
-    """Save enquiries to JSON file"""
-    try:
-        with open(ENQUIRIES_FILE, 'w', encoding='utf-8') as f:
-            json.dump(enquiries, f, indent=2, ensure_ascii=False)
-        return True
-    except Exception as e:
-        logging.error(f"Error saving enquiries: {e}")
-        return False
-
+# ----------------- VALIDATION HELPERS -----------------
 def validate_email(email):
-    """Validate email format"""
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
+    return bool(email and re.match(pattern, email.strip()))
+
 
 def validate_phone(phone):
-    """Validate phone number format"""
+    if not phone:
+        return True  # phone is optional in inquiries
     pattern = r'^[\+\(\)\-\s\d]{7,20}$'
-    return re.match(pattern, phone) is not None
+    return bool(re.match(pattern, phone.strip()))
 
+
+# ----------------- ROUTES -----------------
 @app.route('/')
 def index():
-    """Main page with API documentation"""
     return render_template('index.html')
 
-@app.route('/add_data/<email>/<phone>/<name>/<int:tickets>/<ticket_number>/<country>/<region>')
-def add_ticket_data(email, phone, name, tickets, ticket_number, country, region):
-    """Add ticket data via URL parameters"""
-    try:
-        errors = []
-        
-        if not validate_email(email):
-            errors.append("Invalid email format")
-        
-        if not validate_phone(phone):
-            errors.append("Invalid phone number format")
-        
-        if not name.strip():
-            errors.append("Name cannot be empty")
-        
-        if tickets <= 0:
-            errors.append("Number of tickets must be greater than 0")
-        
-        if not ticket_number.strip():
-            errors.append("Ticket number cannot be empty")
-        
-        if not country.strip():
-            errors.append("Country cannot be empty")
-        
-        if not region.strip():
-            errors.append("Region cannot be empty")
-        
-        if errors:
-            return jsonify({
-                "success": False,
-                "message": "Validation errors",
-                "errors": errors
-            }), 400
-        
-        ticket_data = {
-            "email": email.lower().strip(),
-            "phone": phone.strip(),
-            "name": name.strip(),
-            "tickets": tickets,
-            "ticket_number": ticket_number.strip(),
-            "country": country.strip(),
-            "region": region.strip(),
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        all_tickets = load_tickets()
-        
-        existing_ticket_numbers = [t.get('ticket_number') for t in all_tickets]
-        if ticket_number in existing_ticket_numbers:
-            return jsonify({
-                "success": False,
-                "message": "Ticket number already exists"
-            }), 409
-        
-        all_tickets.append(ticket_data)
-        
-        if save_tickets(all_tickets):
-            logging.info(f"New ticket added: {ticket_number} for {name}")
-            return jsonify({
-                "success": True,
-                "message": "Ticket data added successfully",
-                "ticket_id": ticket_number,
-                "total_tickets": len(all_tickets)
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "message": "Failed to save ticket data"
-            }), 500
-            
-    except Exception as e:
-        logging.error(f"Error adding ticket data: {e}")
-        return jsonify({
-            "success": False,
-            "message": "Internal server error"
-        }), 500
-
-@app.route('/api/tickets')
-def get_tickets_api():
-    """API endpoint to get all tickets"""
-    tickets = load_tickets()
-    return jsonify({
-        "success": True,
-        "tickets": tickets,
-        "total": len(tickets)
-    })
-
-@app.route('/export/excel')
-def export_excel():
-    """Export tickets data to Excel file"""
-    try:
-        tickets = load_tickets()
-        
-        if not tickets:
-            flash("No ticket data available to export", "warning")
-            return redirect(url_for('admin'))
-        
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Ticket Data"
-        
-        headers = ['Email', 'Phone', 'Name', 'Tickets', 'Ticket Number', 'Country', 'Region', 'Timestamp']
-        
-        header_font = Font(bold=True, color='FFFFFF')
-        header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
-        header_alignment = Alignment(horizontal='center', vertical='center')
-        
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_alignment
-        
-        for row, ticket in enumerate(tickets, 2):
-            ws.cell(row=row, column=1, value=ticket.get('email', ''))
-            ws.cell(row=row, column=2, value=ticket.get('phone', ''))
-            ws.cell(row=row, column=3, value=ticket.get('name', ''))
-            ws.cell(row=row, column=4, value=ticket.get('tickets', ''))
-            ws.cell(row=row, column=5, value=ticket.get('ticket_number', ''))
-            ws.cell(row=row, column=6, value=ticket.get('country', ''))
-            ws.cell(row=row, column=7, value=ticket.get('region', ''))
-            ws.cell(row=row, column=8, value=ticket.get('timestamp', ''))
-        
-        for col in ws.columns:
-            max_length = 0
-            column = col[0].column_letter
-            for cell in col:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            ws.column_dimensions[column].width = adjusted_width
-        
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
-        wb.save(temp_file.name)
-        temp_file.close()
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"ticket_data_{timestamp}.xlsx"
-        
-        return send_file(
-            temp_file.name,
-            as_attachment=True,
-            download_name=filename,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        
-    except Exception as e:
-        logging.error(f"Error exporting Excel: {e}")
-        flash("Error exporting data to Excel", "error")
-        return redirect(url_for('admin'))
-
-@app.route('/delete_ticket/<ticket_number>', methods=['POST'])
-def delete_ticket(ticket_number):
-    """Delete a specific ticket"""
-    try:
-        tickets = load_tickets()
-        original_count = len(tickets)
-        
-        tickets = [t for t in tickets if t.get('ticket_number') != ticket_number]
-        
-        if len(tickets) < original_count:
-            if save_tickets(tickets):
-                flash(f"Ticket {ticket_number} deleted successfully", "success")
-            else:
-                flash("Error deleting ticket", "error")
-        else:
-            flash("Ticket not found", "warning")
-        
-        return redirect(url_for('admin'))
-        
-    except Exception as e:
-        logging.error(f"Error deleting ticket: {e}")
-        flash("Error deleting ticket", "error")
-        return redirect(url_for('admin'))
 
 @app.route('/inquiry', methods=['GET', 'POST', 'OPTIONS'])
 def submit_inquiry():
-    """Handle inquiry submissions from external forms - Support CORS"""
+    """Endpoint called by your website inquiry form & modal"""
     if request.method == 'OPTIONS':
         return '', 204
-    
+
     try:
         if request.method == 'GET':
             email = request.args.get('email', '').strip()
@@ -310,26 +158,20 @@ def submit_inquiry():
             message = request.args.get('message', '').strip()
             source = request.args.get('source', '').strip()
         else:
-            data = request.get_json() or {}
+            data = request.get_json(silent=True) or {}
             email = data.get('email', '').strip()
             name = data.get('name', '').strip()
             phone = data.get('phone', '').strip()
             interest = data.get('interest', '').strip()
             message = data.get('message', '').strip()
             source = data.get('source', '').strip()
-        
+
         if not email:
-            return jsonify({
-                "success": False,
-                "message": "Email is required"
-            }), 400
-        
+            return jsonify({"success": False, "message": "Email is required"}), 400
+
         if not validate_email(email):
-            return jsonify({
-                "success": False,
-                "message": "Invalid email format"
-            }), 400
-        
+            return jsonify({"success": False, "message": "Invalid email format"}), 400
+
         inquiry_data = {
             "id": str(uuid.uuid4()),
             "name": name or "Not provided",
@@ -337,153 +179,165 @@ def submit_inquiry():
             "phone": phone or "",
             "enquiry_type": interest or "General",
             "message": message or "",
-            "source": source or "unknown",
+            "source": source or "website",
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        
-        enquiries = load_enquiries()
-        enquiries.append(inquiry_data)
-        
-        if save_enquiries(enquiries):
-            logging.info(f"New inquiry received from: {email}")
+
+        if save_record("enquiries", ENQUIRIES_FILE, inquiry_data):
             return jsonify({
                 "success": True,
                 "message": "Inquiry submitted successfully",
                 "inquiry_id": inquiry_data["id"]
             }), 200
         else:
-            return jsonify({
-                "success": False,
-                "message": "Failed to save inquiry"
-            }), 500
-            
+            return jsonify({"success": False, "message": "Failed to save inquiry"}), 500
+
     except Exception as e:
         logging.error(f"Error submitting inquiry: {e}")
-        return jsonify({
-            "success": False,
-            "message": f"Internal server error: {str(e)}"
-        }), 500
+        return jsonify({"success": False, "message": str(e)}), 500
+
 
 @app.route('/wait/<email>')
 def add_to_waiting_list(email):
-    """Add email to waiting list"""
     try:
         if not validate_email(email):
-            return jsonify({
-                "success": False,
-                "message": "Invalid email format"
-            }), 400
-        
-        waiting_list = load_waiting_list()
-        
-        existing_emails = [entry.get('email') for entry in waiting_list]
-        if email in existing_emails:
-            return jsonify({
-                "success": False,
-                "message": "Email already in waiting list"
-            }), 409
-        
+            return jsonify({"success": False, "message": "Invalid email format"}), 400
+
+        waiting_list = load_data("waiting_list", WAITING_LIST_FILE)
+        if any(entry.get('email') == email.lower().strip() for entry in waiting_list):
+            return jsonify({"success": False, "message": "Email already in waiting list"}), 409
+
         entry_data = {
             "id": str(uuid.uuid4()),
             "email": email.lower().strip(),
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "website": flask_request.args.get('website', '')
+            "website": request.args.get('website', '')
         }
-        
-        waiting_list.append(entry_data)
-        
-        if save_waiting_list(waiting_list):
-            logging.info(f"New waiting list entry: {email}")
+
+        if save_record("waiting_list", WAITING_LIST_FILE, entry_data):
             return jsonify({
                 "success": True,
                 "message": "Added to waiting list successfully",
                 "entry_id": entry_data["id"]
             })
-        else:
-            return jsonify({
-                "success": False,
-                "message": "Failed to save to waiting list"
-            }), 500
-            
+        return jsonify({"success": False, "message": "Failed to save to waiting list"}), 500
     except Exception as e:
         logging.error(f"Error adding to waiting list: {e}")
-        return jsonify({
-            "success": False,
-            "message": "Internal server error"
-        }), 500
+        return jsonify({"success": False, "message": "Internal server error"}), 500
 
-@app.route('/api/waiting_list')
-def get_waiting_list_api():
-    """API endpoint to get waiting list"""
-    waiting_list = load_waiting_list()
-    return jsonify({
-        "success": True,
-        "waiting_list": waiting_list,
-        "total": len(waiting_list)
-    })
-
-@app.route('/delete_waiting_entry/<entry_id>', methods=['POST'])
-def delete_waiting_entry(entry_id):
-    """Delete a waiting list entry"""
-    try:
-        waiting_list = load_waiting_list()
-        original_count = len(waiting_list)
-        
-        waiting_list = [entry for entry in waiting_list if entry.get('id') != entry_id]
-        
-        if len(waiting_list) < original_count:
-            if save_waiting_list(waiting_list):
-                flash(f"Waiting list entry deleted successfully", "success")
-            else:
-                flash("Error deleting waiting list entry", "error")
-        else:
-            flash("Entry not found", "warning")
-        
-        return redirect(url_for('admin'))
-        
-    except Exception as e:
-        logging.error(f"Error deleting waiting list entry: {e}")
-        flash("Error deleting waiting list entry", "error")
-        return redirect(url_for('admin'))
 
 @app.route('/admin')
 def admin():
-    """Admin dashboard to view all tickets, enquiries and waiting list"""
+    """Admin dashboard with persistent inquiries and tickets"""
     try:
-        tickets = load_tickets()
-        enquiries = load_enquiries()
-        waiting_list = load_waiting_list()
-        
-        logging.info(f"Admin page loaded - Tickets: {len(tickets)}, Enquiries: {len(enquiries)}, Waiting: {len(waiting_list)}")
-        
-        return render_template('admin.html', 
-                             tickets=tickets,
-                             total_tickets=len(tickets),
-                             enquiries=enquiries,
-                             total_enquiries=len(enquiries),
-                             waiting_list=waiting_list,
-                             total_waiting=len(waiting_list))
+        tickets = load_data("tickets", TICKETS_FILE)
+        enquiries = load_data("enquiries", ENQUIRIES_FILE)
+        waiting_list = load_data("waiting_list", WAITING_LIST_FILE)
+
+        return render_template(
+            'admin.html',
+            tickets=tickets,
+            total_tickets=len(tickets),
+            enquiries=enquiries,
+            total_enquiries=len(enquiries),
+            waiting_list=waiting_list,
+            total_waiting=len(waiting_list)
+        )
     except Exception as e:
         logging.error(f"Error in admin route: {e}")
-        return jsonify({
-            "success": False,
-            "message": f"Error loading admin page: {str(e)}"
-        }), 500
+        return jsonify({"success": False, "message": f"Error loading admin page: {str(e)}"}), 500
+
+
+@app.route('/delete_inquiry/<inquiry_id>', methods=['POST'])
+def delete_inquiry(inquiry_id):
+    if delete_record("enquiries", ENQUIRIES_FILE, "id", inquiry_id):
+        flash(f"Inquiry deleted successfully", "success")
+    else:
+        flash("Inquiry not found or could not be deleted", "warning")
+    return redirect(url_for('admin'))
+
+
+@app.route('/delete_waiting_entry/<entry_id>', methods=['POST'])
+def delete_waiting_entry(entry_id):
+    if delete_record("waiting_list", WAITING_LIST_FILE, "id", entry_id):
+        flash("Waiting list entry deleted successfully", "success")
+    else:
+        flash("Entry not found", "warning")
+    return redirect(url_for('admin'))
+
+
+@app.route('/delete_ticket/<ticket_number>', methods=['POST'])
+def delete_ticket(ticket_number):
+    if delete_record("tickets", TICKETS_FILE, "ticket_number", ticket_number):
+        flash(f"Ticket {ticket_number} deleted successfully", "success")
+    else:
+        flash("Ticket not found", "warning")
+    return redirect(url_for('admin'))
+
+
+@app.route('/export/excel')
+def export_excel():
+    try:
+        tickets = load_data("tickets", TICKETS_FILE)
+        if not tickets:
+            flash("No ticket data available to export", "warning")
+            return redirect(url_for('admin'))
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Ticket Data"
+
+        headers = ['Email', 'Phone', 'Name', 'Tickets', 'Ticket Number', 'Country', 'Region', 'Timestamp']
+        header_font = Font(bold=True, color='FFFFFF')
+        header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+        header_alignment = Alignment(horizontal='center', vertical='center')
+
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+
+        for row, ticket in enumerate(tickets, 2):
+            ws.cell(row=row, column=1, value=ticket.get('email', ''))
+            ws.cell(row=row, column=2, value=ticket.get('phone', ''))
+            ws.cell(row=row, column=3, value=ticket.get('name', ''))
+            ws.cell(row=row, column=4, value=ticket.get('tickets', ''))
+            ws.cell(row=row, column=5, value=ticket.get('ticket_number', ''))
+            ws.cell(row=row, column=6, value=ticket.get('country', ''))
+            ws.cell(row=row, column=7, value=ticket.get('region', ''))
+            ws.cell(row=row, column=8, value=ticket.get('timestamp', ''))
+
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
+
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        wb.save(temp_file.name)
+        temp_file.close()
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return send_file(
+            temp_file.name,
+            as_attachment=True,
+            download_name=f"ticket_data_{timestamp}.xlsx",
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        logging.error(f"Error exporting Excel: {e}")
+        flash("Error exporting data to Excel", "error")
+        return redirect(url_for('admin'))
+
 
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({
-        "success": False,
-        "message": "Endpoint not found"
-    }), 404
+    return jsonify({"success": False, "message": "Endpoint not found"}), 404
+
 
 @app.errorhandler(500)
 def internal_error(error):
-    return jsonify({
-        "success": False,
-        "message": "Internal server error"
-    }), 500
+    return jsonify({"success": False, "message": "Internal server error"}), 500
 
-# Export the app for Vercel
+
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
